@@ -1,8 +1,0 @@
-{
-    "version": 2,
-    "functions": {
-        "api/create-id-card.js": {
-            "maxDuration": 30
-        }
-    }
-}
