@@ -1,0 +1,31 @@
+{
+    "name": "id-card-generator",
+    "version": "1.0.0",
+    "description": "ID Card Generator with GitHub Pages frontend and Vercel backend",
+    "main": "index.js",
+    "scripts": {
+        "dev": "node index.js",
+        "start": "node index.js",
+        "build": "echo 'No build step required'"
+    },
+    "dependencies": {
+        "jimp": "^0.22.10",
+        "@faker-js/faker": "^8.3.1",
+        "bwip-js": "^3.1.0",
+        "express": "^4.18.2"
+    },
+    "devDependencies": {
+        "@vercel/node": "^3.0.0"
+    },
+    "engines": {
+        "node": ">=18.0.0"
+    },
+    "keywords": [
+        "id-card",
+        "generator",
+        "github-pages",
+        "vercel"
+    ],
+    "author": "Your Name",
+    "license": "MIT"
+}

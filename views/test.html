@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test ID Card</title>
+    <base href="/genidcard/">
+</head>
+<body>
+    <h1>Test ID Card Result</h1>
+    <img id="idCard" src="id_card_test.png" alt="Generated ID Card" style="max-width: 100%;">
+    <script>
+        // Thêm một timestamp để đảm bảo ảnh luôn được làm mới
+        document.getElementById('idCard').src = 'id_card_test.png?' + new Date().getTime();
+    </script>
+</body>
+</html>
