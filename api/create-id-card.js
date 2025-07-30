@@ -4,10 +4,11 @@ const crypto = require('crypto')
 const bwipjs = require('bwip-js')
 const https = require('https')
 const http = require('http')
+const path = require('path')
 
 // Cấu hình đường dẫn cho Vercel
-const BG_PATH = './bg2.png'
-const FONT_PATH = './temp_fonts/faustina.fnt'
+const BG_PATH = path.join(__dirname, '..', 'bg2.png')
+const FONT_PATH = path.join(__dirname, '..', 'temp_fonts', 'faustina.fnt')
 
 /**
  * Tạo URL avatar người thật từ This Person Does Not Exist
