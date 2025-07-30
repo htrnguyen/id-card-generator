@@ -1,25 +1,14 @@
 {
-  "name": "id-card-generator",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon --inspect index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "dependencies": {
-    "@faker-js/faker": "^9.9.0",
-    "barcode": "^0.1.0",
-    "bwip-js": "^4.7.0",
-    "express": "^5.1.0",
-    "jimp": "^0.16.1",
-    "sqlite3": "^5.1.7"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.10"
-  }
+    "name": "id-card-generator",
+    "version": "1.0.0",
+    "main": "index.js",
+    "scripts": {
+        "start": "node index.js"
+    },
+    "dependencies": {
+        "@faker-js/faker": "^8.0.2",
+        "bwip-js": "^2.0.9",
+        "express": "^4.18.2",
+        "jimp": "^0.22.10"
+    }
 }

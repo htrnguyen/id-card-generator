@@ -1,201 +1,364 @@
-const Jimp = require('jimp');
-const fs = require('fs').promises;
-const path = require('path');
-const { faker } = require('@faker-js/faker/locale/en_IN'); // Sử dụng faker với ngôn ngữ Việt Nam
-// faker.setLocale('vi'); // Cấu hình faker để tạo tên theo phong cách Việt Nam
-const express = require('express');
-const crypto = require('crypto');
-const bwipjs = require('bwip-js');
+const express = require('express')
+const path = require('path')
+const {faker} = require('@faker-js/faker/locale/en_IN')
+const Jimp = require('jimp').default
+const bwipjs = require('bwip-js')
+const https = require('https')
 
-const app = express();
-app.set('trust proxy', true); // Tin tưởng reverse proxy
-const PORT = 3005;
+const app = express()
+const PORT = 3005
 
-// Cấu hình đường dẫn
-const AVATAR_DIR = path.join(__dirname, 'avatar');
-const OUTPUT_DIR = path.join(__dirname, 'output');
-const BG_PATH = path.join(__dirname, 'bg2.png');
-const FONT_PATH = path.join(__dirname, 'temp_fonts', 'faustina.fnt'); // Sử dụng font tùy chỉnh
+let font, background
 
-// Đảm bảo thư mục output tồn tại
-fs.mkdir(OUTPUT_DIR, { recursive: true });
-
-
-/**
- * Xóa các tệp ID card cũ hơn 10 phút trong thư mục output.
- */
-async function cleanOldIdCards() {
-    const tenMinutesAgo = Date.now() - (2 * 60 * 1000); // 10 phút trước
-    try {
-        const files = await fs.readdir(OUTPUT_DIR);
-        for (const file of files) {
-            const filePath = path.join(OUTPUT_DIR, file);
-            const stats = await fs.stat(filePath);
-            if (stats.isFile() && stats.mtimeMs < tenMinutesAgo) {
-                await fs.unlink(filePath);
-                console.log(`Đã xóa tệp cũ: ${filePath}`);
-            }
-        }
-    } catch (error) {
-        console.error('Lỗi khi xóa tệp ID card cũ:', error);
-    }
+async function preloadResources() {
+    background = await Jimp.read(path.join(__dirname, 'bg.png'))
+    font = await Jimp.loadFont(
+        path.join(__dirname, 'temp_fonts', 'faustina.fnt')
+    )
 }
 
-/**
- * Ghép ảnh và tạo ID card
- * @param {string} avatarPath Đường dẫn tới ảnh avatar
- * @param {string} name Tên
- * @param {string} fatherName Tên bố
- * @param {string} phone Số điện thoại
- * @param {string} outputFilename Tên file output
- */
-async function generateCard(avatarPath, name, fatherName, phone, regNumber, outputFilename) {
-    try {
-        // Tải các tài nguyên
-        // Tải các tài nguyên tuần tự để dễ debug hơn
-        const background = await Jimp.read(BG_PATH);
-        const avatar = await Jimp.read(avatarPath);
-        const font = await Jimp.loadFont(FONT_PATH); // Sử dụng font tùy chỉnh
-
-        // Ghép avatar vào ảnh nền
-        avatar.contain(152, 197); // Thay đổi kích thước avatar để fit vào khung 152x197, giữ nguyên tỷ lệ
-        background.composite(avatar, 560, 160); // Vị trí (x: 600, y: 160)
-
-        // In thông tin lên ảnh
-        background.print(font, 200, 160, regNumber); // RegNumber
-        background.print(font, 200, 190, name); // Tên: (x: 200, y: 50)
-        background.print(font, 200, 251, fatherName); // Tên bố: (x: 200, y: 100)
-        background.print(font, 200, 282, phone); // SĐT: (x: 200, y: 150)
-
-        // Lưu ảnh
-        // Tạo barcode
-        const barcodeImage = await new Promise((resolve, reject) => {
-            bwipjs.toBuffer({
-                bcid: 'code128', // Loại barcode
-                text: regNumber, // Dữ liệu barcode
-                // scale: 2, // Độ phân giải
-                height: 10, // Chiều cao của barcode
-                // width: 100, // Chiều rộng của barcode
-                includetext: true, // Bao gồm văn bản bên dưới barcode
-                textxalign: 'center', // Căn giữa văn bản
-                textyoffset: 5, // Dịch chuyển văn bản lên trên một chút
-                monochrome: true, // Chỉ sử dụng màu đen và trắng
-            }, function (err, png) {
-                if (err) {
-                    reject(err);
+function downloadImage(url) {
+    return new Promise((resolve, reject) => {
+        const req = https.get(url, (res) => {
+            const chunks = []
+            res.on('data', (chunk) => chunks.push(chunk))
+            res.on('end', () => {
+                if (res.statusCode === 200) {
+                    resolve(Buffer.concat(chunks))
                 } else {
-                    resolve(png);
+                    reject(
+                        new Error(
+                            `Failed to load image. Status: ${res.statusCode}`
+                        )
+                    )
                 }
-            });
-        });
-
-        const barcodeJimp = await Jimp.read(barcodeImage);
-        background.composite(barcodeJimp, 30, 370); // Vị trí barcode (x, y)
-
-        const outputPath = path.join(OUTPUT_DIR, outputFilename);
-        await background.writeAsync(outputPath);
-        console.log(`Đã tạo thành công ID card: ${outputPath}`);
-        return outputPath;
-    } catch (error) {
-        console.error('Lỗi khi tạo ID card:', error);
-    }
+            })
+        })
+        req.on('error', reject)
+    })
 }
 
-/**
- * Tạo ID card với thông tin ngẫu nhiên
- */
-async function createIdCard() {
-    try {
-        await cleanOldIdCards(); // Xóa tệp cũ trước khi tạo mới
+async function generateCard({name, fatherName, phone, regNumber}) {
+    const [bg, avatarBuf] = await Promise.all([
+        background.clone(),
+        downloadImage('https://thispersondoesnotexist.com/'),
+    ])
 
-        const avatarFiles = await fs.readdir(AVATAR_DIR);
-        if (avatarFiles.length === 0) {
-            console.error("Thư mục 'avatar' đang trống. Bỏ qua việc tạo card tự động khi khởi động.");
-            return;
-        }
-        const randNum = Math.floor(Math.random() * avatarFiles.length);
-        console.log(`Chọn ảnh avatar thứ ${randNum + 1} trong tổng số ${avatarFiles.length} ảnh.`);
-        const randomAvatar = avatarFiles[randNum];
-        const avatarPath = path.join(AVATAR_DIR, randomAvatar);
+    const avatar = await Jimp.read(avatarBuf)
+    avatar.contain(152, 197)
+    bg.composite(avatar, 560, 160)
 
-        const name = faker.person.fullName();
-        const fatherName = faker.person.fullName();
-        const phone = faker.phone.number();
-        const randomDigits = Math.floor(10000 + Math.random() * 90000); // 5 chữ số ngẫu nhiên
-        const regNumber = `BBDITM/BT-CS/2025/${randomDigits}`;
-        const randomId = crypto.randomBytes(4).toString('hex');
-        const outputFilename = `id_card_${randomId}.png`;
+    bg.print(font, 200, 160, regNumber)
+    bg.print(font, 200, 190, name)
+    bg.print(font, 200, 251, fatherName)
+    bg.print(font, 200, 282, phone)
 
-        const outputPath = await generateCard(avatarPath, name, fatherName, phone, regNumber, outputFilename);
-        return outputPath; // Trả về đường dẫn của ảnh đã tạo
-    } catch (error) {
-        console.error('Lỗi trong quá trình createIdCard:', error);
-        throw error;
-    }
+    const barcode = await new Promise((resolve, reject) => {
+        bwipjs.toBuffer(
+            {
+                bcid: 'code128',
+                text: regNumber,
+                height: 10,
+                includetext: true,
+                textxalign: 'center',
+                textyoffset: 5,
+                monochrome: true,
+            },
+            (err, png) => (err ? reject(err) : resolve(png))
+        )
+    })
+
+    const barcodeImg = await Jimp.read(barcode)
+    bg.composite(barcodeImg, 30, 370)
+
+    return await bg.getBufferAsync(Jimp.MIME_PNG)
 }
 
-/**
- * Hàm test: tạo ID card với dữ liệu cố định
- */
-async function testCreateIdCard() {
+// Test: ảnh cố định
+app.get('/test', async (req, res) => {
     try {
-        const avatarFiles = await fs.readdir(AVATAR_DIR);
-        if (avatarFiles.length === 0) {
-            return console.error("Vui lòng thêm ít nhất một ảnh vào thư mục 'avatar' để test.");
-        }
-        const testAvatarPath = path.join(AVATAR_DIR, avatarFiles[0]); // Lấy ảnh đầu tiên để test
-        const outputFilename = 'id_card_test.png';
-        const imagePath = await generateCard(
-            testAvatarPath,
-            'Nguyen Van A',
-            'Nguyen Van B',
-            '0123456789',
-            'BBDITM/BT-CS/2025/12345', // Test regNumber
-            outputFilename
-        );
-        return imagePath; // Trả về đường dẫn để server sử dụng
-    } catch (error) {
-        console.error('Lỗi khi chạy testCreateIdCard:', error);
+        const buffer = await generateCard({
+            name: 'Nguyen Van A',
+            fatherName: 'Nguyen Van B',
+            phone: '0123456789',
+            regNumber: 'BBDITM/BT-CS/2025/12345',
+        })
+        res.set('Content-Type', 'image/png').send(buffer)
+    } catch (e) {
+        res.status(500).send('Lỗi tạo ID card test')
     }
-}
+})
 
-// Cung cấp các file tĩnh từ thư mục output
-app.use('/genidcard', express.static(OUTPUT_DIR));
-
-// Route để test
-app.get('/genidcard/test', async (req, res) => {
-    await testCreateIdCard();
-    // Gửi file test.html, file này sẽ tự động load ảnh id_card_test.png
-    res.sendFile(path.join(__dirname, 'views', 'test.html'));
-});
-
-
-// Route để tạo card mới theo yêu cầu
-app.get('/genidcard/api/create', async (req, res) => {
+// Tạo ID card ngẫu nhiên + render HTML
+app.get('/create', async (req, res) => {
     try {
-        const imagePath = await createIdCard();
-        if (imagePath) {
-            const filename = path.basename(imagePath);
-            const htmlPath = path.join(__dirname, 'views', 'create_result.html');
-            let htmlContent = await fs.readFile(htmlPath, 'utf8');
-            htmlContent = htmlContent.replace('{{filename}}', filename);
-            res.send(htmlContent);
-        } else {
-            res.status(500).send('Lỗi: Không thể tạo ID card.');
-        }
-    } catch (error) {
-        res.status(500).send({ message: 'Lỗi khi tạo ID card.', error: error.message });
+        const name = faker.person.firstName()
+        const lastName = faker.person.lastName()
+        const fullName = `${name} ${lastName}`
+        const fatherName = faker.person.fullName()
+        const phone = faker.phone.number()
+        const regNumber = `BBDITM/BT-CS/2025/${Math.floor(
+            10000 + Math.random() * 90000
+        )}`
+
+        // Random birthday (2005-2007)
+        const year = faker.number.int({min: 2005, max: 2007})
+        const month = faker.date.month({abbreviated: true}) // e.g. Jan
+        const day = faker.number.int({min: 1, max: 28})
+
+        const email = `${name.toLowerCase()}.${lastName.toLowerCase()}@student.edu`
+
+        const buffer = await generateCard({
+            name: fullName,
+            fatherName,
+            phone,
+            regNumber,
+        })
+
+        const base64Image = buffer.toString('base64')
+
+        const jsScript = `
+(async () => {
+  const delay = ms => new Promise(r => setTimeout(r, ms));
+  const set = async (sel, val) => {
+    const el = document.querySelector(sel);
+    if (!el) return;
+    const setVal = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+    setVal.call(el, val);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    el.dispatchEvent(new Event("blur", { bubbles: true }));
+    await delay(150);
+  };
+
+  const pasteSchool = async (val) => {
+    const el = document.querySelector('#sid-college-name');
+    if (!el) return;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(el, val);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    await delay(2000);
+    document.querySelector('#sid-college-name-menu [role="option"]')?.click();
+  };
+
+  const selectJanuary = async () => {
+    const el = document.querySelector('#sid-birthdate__month');
+    if (!el) return;
+    el.focus(); el.click();
+    await delay(400);
+    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    await delay(400);
+    [...document.querySelectorAll('#sid-birthdate__month-menu [role="option"]')]
+      .find(o => o.innerText.toLowerCase().startsWith("${month.toLowerCase()}"))?.click();
+  };
+
+  await pasteSchool("Babu Banarasi Das National Institute Of Technology And Management");
+  await selectJanuary();
+
+  const fields = [
+    ['#sid-first-name', '${name}'],
+    ['#sid-last-name', '${lastName}'],
+    ['#sid-birthdate-day', '${String(day).padStart(2, '0')}'],
+    ['#sid-birthdate-year', '${year}'],
+    ['#sid-email', '${email}']
+  ];
+
+  for (const [sel, val] of fields) await set(sel, val);
+  for (const [sel, val] of fields) if (!document.querySelector(sel)?.value) await set(sel, val);
+
+  console.log("✅ Form đã được điền đầy đủ (chưa submit)");
+})();`.trim()
+
+        const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ID Card Generator</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
     }
-});
 
-// Route chính
-app.get('/genidcard', (req, res) => {
-    res.send('Server API đang chạy. Truy cập /genidcard/test để kiểm tra kết quả. Dùng /genidcard/api/create để tạo card mới.');
-});
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      padding: 20px;
+      color: #333;
+    }
 
-// Khởi động server
-app.listen(PORT, () => {
-    console.log(`Server đang chạy tại http://localhost:${PORT}`);
-    console.log(`- Truy cập http://localhost:${PORT}/genidcard/test để kiểm tra kết quả.`);
-    console.log(`- Gửi request GET đến http://localhost:${PORT}/genidcard/api/create để tạo một ID card mới.`);
-});
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .header {
+      background: #4a90e2;
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 2rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      font-size: 1rem;
+      opacity: 0.9;
+    }
+
+    .content {
+      padding: 40px;
+      text-align: center;
+    }
+
+    .id-card {
+      max-width: 100%;
+      height: auto;
+      border-radius: 8px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+      margin-bottom: 30px;
+    }
+
+    .buttons {
+      display: flex;
+      gap: 15px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 24px;
+      background: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .btn:hover {
+      background: #357abd;
+      transform: translateY(-1px);
+    }
+
+    .btn:active {
+      transform: translateY(0);
+    }
+
+    .copy-btn {
+      background: #28a745;
+    }
+
+    .copy-btn:hover {
+      background: #218838;
+    }
+
+    @media (max-width: 600px) {
+      .content {
+        padding: 20px;
+      }
+      
+      .buttons {
+        flex-direction: column;
+        align-items: center;
+      }
+      
+      .btn {
+        width: 100%;
+        max-width: 250px;
+        justify-content: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>✅ ID Card Generated Successfully</h1>
+      <p>Your ID card is ready to use</p>
+    </div>
+
+    <div class="content">
+      <img id="idcard" class="id-card" src="data:image/png;base64,${base64Image}" alt="ID Card">
+      
+      <div class="buttons">
+        <button class="btn" onclick="download()">
+          📥 Download
+        </button>
+        <button class="btn copy-btn" onclick="copy()">
+          📋 Copy Script
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function copy() {
+      const script = \`${jsScript}\`;
+      navigator.clipboard.writeText(script).then(() => {
+        const btn = document.querySelector('.copy-btn');
+        const originalText = btn.textContent;
+        btn.textContent = '✅ Copied!';
+        
+        setTimeout(() => {
+          btn.textContent = originalText;
+        }, 2000);
+      });
+    }
+
+    function download() {
+      const img = document.querySelector('#idcard');
+      const a = document.createElement('a');
+      a.href = img.src;
+      a.download = 'id_card_${regNumber.replace(/\//g, '_')}.png';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      const btn = document.querySelector('.btn');
+      const originalText = btn.textContent;
+      btn.textContent = '✅ Downloaded!';
+      
+      setTimeout(() => {
+        btn.textContent = originalText;
+      }, 2000);
+    }
+  </script>
+</body>
+</html>`
+
+        res.send(html)
+    } catch (e) {
+        console.error('❌ Lỗi tạo ID card:', e)
+        res.status(500).send('Lỗi tạo ID card')
+    }
+})
+
+preloadResources()
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`✅ Server running: http://localhost:${PORT}`)
+            console.log(`🧪 Test card:     http://localhost:${PORT}/test`)
+            console.log(`🎲 Random card:  http://localhost:${PORT}/create`)
+        })
+    })
+    .catch((err) => {
+        console.error('🚫 Lỗi khởi tạo font hoặc background:', err)
+    })
