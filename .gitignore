@@ -184,14 +184,14 @@ Thumbs.db
 *.swo
 *~
 
-# Generated files
-*.png
-*.jpg
-*.jpeg
-*.gif
-*.bmp
-*.ico
-*.svg
+# # Generated files
+# *.png
+# *.jpg
+# *.jpeg
+# *.gif
+# *.bmp
+# *.ico
+# *.svg
 
 # Temporary files
 *.tmp
